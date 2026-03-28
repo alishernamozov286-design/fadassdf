@@ -1,0 +1,20 @@
+{
+  "name": "ai-translator-backend",
+  "version": "1.0.0",
+  "description": "AI Translator Backend API",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/app.js",
+    "dev": "node --watch src/app.js"
+  },
+  "keywords": ["translator", "ai", "groq"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "cors": "^2.8.5"
+  }
+}
