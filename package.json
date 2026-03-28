@@ -7,7 +7,8 @@
     "dev:backend": "cd backend && npm install && npm start",
     "dev:frontend": "cd frontend && npm install && npm run dev",
     "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "start": "npm run dev"
+    "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
+    "start": "cd backend && node src/app.js"
   },
   "keywords": ["translator", "ai", "groq", "react", "nodejs"],
   "author": "",
