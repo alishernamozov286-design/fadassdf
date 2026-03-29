@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { translateText } from '../services/translationService';
+import { createWorker } from 'tesseract.js';
 
 const languages = [
   { code: 'English', name: 'English', flag: '🇬🇧' },
@@ -25,6 +26,90 @@ const Translator: React.FC = () => {
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Preload voices for mobile compatibility
+  useEffect(() => {
+    if ('speechSynthesis' in window) {
+      // Load voices immediately
+      let voices = window.speechSynthesis.getVoices();
+      
+      // If voices not loaded yet, wait for them
+      if (voices.length === 0) {
+        window.speechSynthesis.onvoiceschanged = () => {
+          voices = window.speechSynthesis.getVoices();
+          console.log('Voices loaded:', voices.length);
+        };
+      }
+      
+      // Trigger voice loading on iOS
+      const utterance = new SpeechSynthesisUtterance('');
+      window.speechSynthesis.speak(utterance);
+      window.speechSynthesis.cancel();
+    }
+  }, []);
+
+  // OCR - Extract text from image
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.type.startsWith('image/')) {
+      setError('Iltimos, rasm fayl yuklang (JPG, PNG, etc.)');
+      return;
+    }
+
+    // Check file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Rasm hajmi 10MB dan kichik bo\'lishi kerak');
+      return;
+    }
+
+    setIsProcessingImage(true);
+    setError('');
+    setOcrProgress(0);
+
+    try {
+      // Create Tesseract worker
+      const worker = await createWorker('eng', 1, {
+        logger: (m: any) => {
+          if (m.status === 'recognizing text') {
+            setOcrProgress(Math.round(m.progress * 100));
+          }
+        },
+      });
+
+      // Recognize text from image
+      const { data: { text } } = await worker.recognize(file);
+      
+      await worker.terminate();
+
+      if (text.trim()) {
+        setInputText(text.trim());
+        setOcrProgress(100);
+      } else {
+        setError('Rasmdan matn topilmadi. Boshqa rasm yuklang.');
+      }
+    } catch (err) {
+      console.error('OCR error:', err);
+      setError('Rasmdan matn o\'qishda xatolik. Qaytadan urinib ko\'ring.');
+    } finally {
+      setIsProcessingImage(false);
+      setOcrProgress(0);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  // Trigger file input click
+  const handleImageButtonClick = () => {
+    fileInputRef.current?.click();
+  };
 
   // Auto-format text: capitalize first letter and after punctuation, add space after punctuation
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -73,16 +158,25 @@ const Translator: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Text-to-Speech function
+  // Text-to-Speech function - Mobile optimized
   const handleSpeak = () => {
-    if ('speechSynthesis' in window) {
-      // Stop if already speaking
-      if (isSpeaking) {
-        window.speechSynthesis.cancel();
-        setIsSpeaking(false);
-        return;
-      }
+    if (!('speechSynthesis' in window)) {
+      setError('Ovoz o\'qish brauzeringizda qo\'llab-quvvatlanmaydi');
+      return;
+    }
 
+    // Stop if already speaking
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+
+    // Cancel any ongoing speech first (important for mobile)
+    window.speechSynthesis.cancel();
+
+    // Small delay to ensure cancellation is complete (critical for iOS)
+    setTimeout(() => {
       const utterance = new SpeechSynthesisUtterance(translatedText);
       
       // Set language based on target language
@@ -102,76 +196,65 @@ const Translator: React.FC = () => {
       };
       
       utterance.lang = languageCodes[targetLang] || 'en-US';
-      utterance.rate = 0.75; // Very slow and crystal clear
-      utterance.pitch = 1.2; // Higher pitch for maximum clarity
+      utterance.rate = 0.9; // Slightly faster for mobile
+      utterance.pitch = 1.0; // Normal pitch for better mobile compatibility
       utterance.volume = 1;
 
-      // Load voices if not loaded yet
-      let voices = window.speechSynthesis.getVoices();
+      // Get available voices
+      const voices = window.speechSynthesis.getVoices();
+      const targetLangCode = utterance.lang.split('-')[0];
       
-      // If voices not loaded, wait for them
-      if (voices.length === 0) {
-        window.speechSynthesis.onvoiceschanged = () => {
-          voices = window.speechSynthesis.getVoices();
-          selectBestVoice();
-        };
-      } else {
-        selectBestVoice();
-      }
-
-      function selectBestVoice() {
-        // Prioritize the highest quality voices
-        const targetLangCode = utterance.lang.split('-')[0];
-        
-        // First priority: Google voices (best quality)
-        let bestVoice = voices.find(voice => 
+      // Find best voice for the language
+      let bestVoice = voices.find(voice => 
+        voice.lang.startsWith(targetLangCode) && 
+        voice.name.toLowerCase().includes('google')
+      );
+      
+      if (!bestVoice) {
+        bestVoice = voices.find(voice => 
           voice.lang.startsWith(targetLangCode) && 
-          voice.name.toLowerCase().includes('google')
+          voice.name.toLowerCase().includes('natural')
         );
-        
-        // Second priority: Microsoft Natural voices
-        if (!bestVoice) {
-          bestVoice = voices.find(voice => 
-            voice.lang.startsWith(targetLangCode) && 
-            voice.name.toLowerCase().includes('natural')
-          );
-        }
-        
-        // Third priority: Premium/Enhanced voices
-        if (!bestVoice) {
-          bestVoice = voices.find(voice => 
-            voice.lang.startsWith(targetLangCode) && 
-            (voice.name.toLowerCase().includes('premium') || 
-             voice.name.toLowerCase().includes('enhanced'))
-          );
-        }
-        
-        // Fourth priority: Cloud-based voices (non-local)
-        if (!bestVoice) {
-          bestVoice = voices.find(voice => 
-            voice.lang.startsWith(targetLangCode) && 
-            !voice.localService
-          );
-        }
-        
-        // Fallback: Any voice for the language
-        if (!bestVoice) {
-          bestVoice = voices.find(voice => voice.lang.startsWith(targetLangCode));
-        }
-        
-        if (bestVoice) {
-          utterance.voice = bestVoice;
-        }
+      }
+      
+      if (!bestVoice) {
+        bestVoice = voices.find(voice => 
+          voice.lang.startsWith(targetLangCode) && 
+          !voice.localService
+        );
+      }
+      
+      if (!bestVoice) {
+        bestVoice = voices.find(voice => voice.lang.startsWith(targetLangCode));
+      }
+      
+      if (bestVoice) {
+        utterance.voice = bestVoice;
       }
 
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        setError('');
+      };
+      
+      utterance.onend = () => {
+        setIsSpeaking(false);
+      };
+      
+      utterance.onerror = (event) => {
+        console.error('Speech error:', event);
+        setIsSpeaking(false);
+        setError('Ovoz o\'qishda xatolik yuz berdi. Qaytadan urinib ko\'ring.');
+      };
 
+      // Speak immediately (must be in direct response to user action for mobile)
       window.speechSynthesis.speak(utterance);
-    } else {
-      setError('Text-to-speech is not supported in your browser');
-    }
+      
+      // iOS Safari fix: Resume if paused
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    }, 100);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -292,12 +375,52 @@ const Translator: React.FC = () => {
                   </span>
                 </div>
               </div>
-              <p className="text-gray-500 text-xs mt-2 flex items-center gap-1 flex-wrap">
-                <kbd className="px-2 py-0.5 bg-black/40 border border-blue-900/30 rounded text-gray-400 font-mono text-xs">Ctrl</kbd>
-                <span>+</span>
-                <kbd className="px-2 py-0.5 bg-black/40 border border-blue-900/30 rounded text-gray-400 font-mono text-xs">Enter</kbd>
-                <span>tarjima qilish uchun</span>
-              </p>
+              <div className="flex items-center justify-between mt-2 flex-wrap gap-2">
+                <div className="text-gray-500 text-xs flex items-center gap-1 flex-wrap">
+                  <kbd className="px-2 py-0.5 bg-black/40 border border-blue-900/30 rounded text-gray-400 font-mono text-xs">Ctrl</kbd>
+                  <span>+</span>
+                  <kbd className="px-2 py-0.5 bg-black/40 border border-blue-900/30 rounded text-gray-400 font-mono text-xs">Enter</kbd>
+                  <span>tarjima qilish uchun</span>
+                </div>
+                
+                {/* Image Upload Button */}
+                <button
+                  onClick={handleImageButtonClick}
+                  disabled={isProcessingImage}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg transition-all text-xs border border-blue-600/40 hover:border-blue-500 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Rasmdan matn o'qish"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span>{isProcessingImage ? 'O\'qilmoqda...' : 'Rasm yuklash'}</span>
+                </button>
+                
+                {/* Hidden file input */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+              </div>
+              
+              {/* OCR Progress */}
+              {isProcessingImage && (
+                <div className="mt-3 p-3 bg-blue-600/10 border border-blue-600/30 rounded-xl">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-blue-400 text-xs font-medium">Rasmdan matn o'qilmoqda...</span>
+                    <span className="text-blue-400 text-xs font-bold">{ocrProgress}%</span>
+                  </div>
+                  <div className="w-full bg-blue-900/30 rounded-full h-2 overflow-hidden">
+                    <div 
+                      className="bg-gradient-to-r from-blue-500 to-blue-600 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${ocrProgress}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Language Selection */}
