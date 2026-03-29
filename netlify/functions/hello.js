@@ -1,5 +1,5 @@
 // Test function - Netlify Functions ishlayotganini tekshirish uchun
-export const handler = async () => {
+exports.handler = async () => {
   return {
     statusCode: 200,
     headers: {
