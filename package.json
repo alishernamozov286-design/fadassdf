@@ -8,7 +8,10 @@
     "dev:frontend": "cd frontend && npm install && npm run dev",
     "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
     "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
-    "start": "cd backend && node src/app.js"
+    "start": "cd backend && node src/app.js",
+    "netlify:dev": "netlify dev",
+    "netlify:deploy": "netlify deploy --prod",
+    "netlify:functions": "cd netlify/functions && npm install"
   },
   "keywords": ["translator", "ai", "groq", "react", "nodejs"],
   "author": "",

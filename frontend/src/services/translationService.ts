@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+// Netlify Functions uchun API URL
+// Production: /.netlify/functions/translate
+// Development: /api/translate (proxy orqali)
 const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export interface TranslationRequest {
