@@ -30,9 +30,12 @@ const Translator: React.FC = () => {
   const [ocrProgress, setOcrProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Preload voices for mobile compatibility
+  // Preload voices for mobile compatibility (iOS & Android)
   useEffect(() => {
     if ('speechSynthesis' in window) {
+      // Cancel any ongoing speech first
+      window.speechSynthesis.cancel();
+      
       // Load voices immediately
       let voices = window.speechSynthesis.getVoices();
       
@@ -44,11 +47,23 @@ const Translator: React.FC = () => {
         };
       }
       
-      // Trigger voice loading on iOS
+      // Trigger voice loading on mobile (iOS & Android)
       const utterance = new SpeechSynthesisUtterance('');
+      utterance.volume = 0; // Silent
       window.speechSynthesis.speak(utterance);
-      window.speechSynthesis.cancel();
+      
+      // Small delay before canceling (important for Android)
+      setTimeout(() => {
+        window.speechSynthesis.cancel();
+      }, 100);
     }
+    
+    // Cleanup on unmount
+    return () => {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
   }, []);
 
   // OCR - Extract text from image
@@ -158,10 +173,15 @@ const Translator: React.FC = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Text-to-Speech function - Mobile optimized
+  // Text-to-Speech function - Mobile optimized (iOS & Android)
   const handleSpeak = () => {
     if (!('speechSynthesis' in window)) {
       setError('Ovoz o\'qish brauzeringizda qo\'llab-quvvatlanmaydi');
+      return;
+    }
+
+    if (!translatedText || translatedText.trim() === '') {
+      setError('Tarjima matni bo\'sh. Avval tarjima qiling.');
       return;
     }
 
@@ -175,86 +195,133 @@ const Translator: React.FC = () => {
     // Cancel any ongoing speech first (important for mobile)
     window.speechSynthesis.cancel();
 
-    // Small delay to ensure cancellation is complete (critical for iOS)
-    setTimeout(() => {
-      const utterance = new SpeechSynthesisUtterance(translatedText);
-      
-      // Set language based on target language
-      const languageCodes: { [key: string]: string } = {
-        'English': 'en-US',
-        'Uzbek': 'uz-UZ',
-        'Russian': 'ru-RU',
-        'Spanish': 'es-ES',
-        'French': 'fr-FR',
-        'German': 'de-DE',
-        'Chinese': 'zh-CN',
-        'Arabic': 'ar-SA',
-        'Turkish': 'tr-TR',
-        'Korean': 'ko-KR',
-        'Japanese': 'ja-JP',
-        'Italian': 'it-IT',
-      };
-      
-      utterance.lang = languageCodes[targetLang] || 'en-US';
-      utterance.rate = 0.9; // Slightly faster for mobile
-      utterance.pitch = 1.0; // Normal pitch for better mobile compatibility
-      utterance.volume = 1;
+    // CRITICAL: Must create and speak utterance immediately in user gesture handler
+    // Android Chrome requires this to be synchronous
+    const utterance = new SpeechSynthesisUtterance(translatedText);
+    
+    // Set language based on target language
+    const languageCodes: { [key: string]: string } = {
+      'English': 'en-US',
+      'Uzbek': 'uz-UZ',
+      'Russian': 'ru-RU',
+      'Spanish': 'es-ES',
+      'French': 'fr-FR',
+      'German': 'de-DE',
+      'Chinese': 'zh-CN',
+      'Arabic': 'ar-SA',
+      'Turkish': 'tr-TR',
+      'Korean': 'ko-KR',
+      'Japanese': 'ja-JP',
+      'Italian': 'it-IT',
+    };
+    
+    utterance.lang = languageCodes[targetLang] || 'en-US';
+    utterance.rate = 0.85; // Slower for better clarity on mobile
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0; // Maximum volume
 
-      // Get available voices
-      const voices = window.speechSynthesis.getVoices();
-      const targetLangCode = utterance.lang.split('-')[0];
-      
-      // Find best voice for the language
-      let bestVoice = voices.find(voice => 
+    // Get available voices
+    const voices = window.speechSynthesis.getVoices();
+    const targetLangCode = utterance.lang.split('-')[0];
+    
+    // Android-specific: Prefer local voices first, then online
+    let bestVoice = voices.find(voice => 
+      voice.lang.startsWith(targetLangCode) && 
+      voice.localService
+    );
+    
+    // If no local voice, try Google voices
+    if (!bestVoice) {
+      bestVoice = voices.find(voice => 
         voice.lang.startsWith(targetLangCode) && 
         voice.name.toLowerCase().includes('google')
       );
-      
-      if (!bestVoice) {
-        bestVoice = voices.find(voice => 
-          voice.lang.startsWith(targetLangCode) && 
-          voice.name.toLowerCase().includes('natural')
-        );
-      }
-      
-      if (!bestVoice) {
-        bestVoice = voices.find(voice => 
-          voice.lang.startsWith(targetLangCode) && 
-          !voice.localService
-        );
-      }
-      
-      if (!bestVoice) {
-        bestVoice = voices.find(voice => voice.lang.startsWith(targetLangCode));
-      }
-      
-      if (bestVoice) {
-        utterance.voice = bestVoice;
-      }
+    }
+    
+    // Try any voice with matching language
+    if (!bestVoice) {
+      bestVoice = voices.find(voice => voice.lang.startsWith(targetLangCode));
+    }
+    
+    // Fallback to any English voice if target language not found
+    if (!bestVoice && targetLangCode !== 'en') {
+      bestVoice = voices.find(voice => voice.lang.startsWith('en'));
+    }
+    
+    if (bestVoice) {
+      utterance.voice = bestVoice;
+      console.log('Using voice:', bestVoice.name, bestVoice.lang);
+    } else {
+      console.warn('No suitable voice found for', targetLangCode);
+    }
 
-      utterance.onstart = () => {
-        setIsSpeaking(true);
-        setError('');
-      };
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      setError('');
+      console.log('Speech started');
+    };
+    
+    utterance.onend = () => {
+      setIsSpeaking(false);
+      console.log('Speech ended');
+    };
+    
+    utterance.onerror = (event) => {
+      console.error('Speech error:', event.error, event);
+      setIsSpeaking(false);
       
-      utterance.onend = () => {
-        setIsSpeaking(false);
-      };
-      
-      utterance.onerror = (event) => {
-        console.error('Speech error:', event);
-        setIsSpeaking(false);
-        setError('Ovoz o\'qishda xatolik yuz berdi. Qaytadan urinib ko\'ring.');
-      };
+      // More specific error messages
+      if (event.error === 'not-allowed') {
+        setError('Ovoz ruxsati berilmagan. Brauzer sozlamalarini tekshiring.');
+      } else if (event.error === 'network') {
+        setError('Internet aloqasi yo\'q. Internetni tekshiring.');
+      } else if (event.error === 'synthesis-failed') {
+        setError('Ovoz sintezi xato. Boshqa til tanlang yoki qayta urinib ko\'ring.');
+      } else {
+        setError('Ovoz o\'qishda xatolik: ' + event.error);
+      }
+    };
 
-      // Speak immediately (must be in direct response to user action for mobile)
+    utterance.onpause = () => {
+      console.log('Speech paused');
+    };
+
+    utterance.onresume = () => {
+      console.log('Speech resumed');
+    };
+
+    // CRITICAL: Speak immediately - must be synchronous for Android
+    try {
       window.speechSynthesis.speak(utterance);
+      console.log('Speech queued');
       
-      // iOS Safari fix: Resume if paused
-      if (window.speechSynthesis.paused) {
-        window.speechSynthesis.resume();
-      }
-    }, 100);
+      // Android Chrome workaround: Force resume after a tiny delay
+      setTimeout(() => {
+        if (window.speechSynthesis.paused) {
+          console.log('Resuming paused speech');
+          window.speechSynthesis.resume();
+        }
+        
+        // Double-check if speaking started
+        if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+          console.warn('Speech did not start, retrying...');
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(utterance);
+        }
+      }, 50);
+      
+      // Additional check for Android
+      setTimeout(() => {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
+      }, 200);
+      
+    } catch (err) {
+      console.error('Speech synthesis error:', err);
+      setIsSpeaking(false);
+      setError('Ovoz o\'qish ishga tushmadi. Qaytadan urinib ko\'ring.');
+    }
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

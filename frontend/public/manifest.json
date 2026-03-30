@@ -1,12 +1,17 @@
 {
   "name": "AI Translator - Tarjimon",
   "short_name": "AI Translator",
-  "description": "AI-powered translation application with Groq",
+  "description": "AI-powered translation application with speech support",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#0a0f1e",
   "theme_color": "#3b82f6",
   "orientation": "portrait-primary",
+  "prefer_related_applications": false,
+  "categories": ["productivity", "utilities", "education"],
+  "lang": "uz",
+  "dir": "ltr",
   "icons": [
     {
       "src": "/icon-72x72.png",
