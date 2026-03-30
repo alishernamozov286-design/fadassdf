@@ -532,7 +532,7 @@ const Translator: React.FC = () => {
             {/* Error Message */}
             {error && (
               <div className="mt-6 p-5 bg-red-500/10 border border-red-500/30 rounded-2xl backdrop-blur-sm animate-slide-up">
-                <p className="text-red-400 text-sm flex items-center gap-3 font-medium">
+                <div className="text-red-400 text-sm flex items-center gap-3 font-medium">
                   <div className="flex-shrink-0 w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
                     <svg
                       className="w-5 h-5 text-red-400"
@@ -547,7 +547,7 @@ const Translator: React.FC = () => {
                     </svg>
                   </div>
                   <span>{error}</span>
-                </p>
+                </div>
               </div>
             )}
 
@@ -628,9 +628,9 @@ const Translator: React.FC = () => {
                   <div className="absolute top-3 right-3">
                     <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
                   </div>
-                  <p className="text-white text-lg leading-relaxed whitespace-pre-wrap font-medium break-words overflow-wrap-anywhere">
+                  <div className="text-white text-lg leading-relaxed whitespace-pre-wrap font-medium break-words overflow-wrap-anywhere">
                     {translatedText}
-                  </p>
+                  </div>
                 </div>
               </div>
             )}
